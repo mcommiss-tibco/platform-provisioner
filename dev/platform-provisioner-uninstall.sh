@@ -32,53 +32,57 @@ function k8s-waitfor-deletion() {
   fi
 }
 
+function helm_uninstall_if_exists() {
+  release_name=$1
+  namespace=$2
+  if helm status -n "${namespace}" "${release_name}" > /dev/null 2>&1; then
+    helm uninstall -n "${namespace}" "${release_name}"
+    if [[ $? -ne 0 ]]; then
+      echo "failed to uninstall ${release_name}"
+      exit 1
+    fi
+  else
+    echo "${release_name} is not installed, skipping..."
+  fi
+}
+
 # Uninstall provisioner web ui
-helm uninstall -n "${PIPELINE_NAMESPACE}" platform-provisioner-ui
-if [[ $? -ne 0 ]]; then
-  echo "failed to uninstall platform-provisioner-ui"
-  exit 1
-fi
+helm_uninstall_if_exists platform-provisioner-ui "${PIPELINE_NAMESPACE}"
 
 # Uninstall provisioner config
-helm uninstall -n "${PIPELINE_NAMESPACE}" provisioner-config-local
-if [[ $? -ne 0 ]]; then
-  echo "failed to uninstall provisioner-config-local"
-  exit 1
-fi
+helm_uninstall_if_exists provisioner-config-local "${PIPELINE_NAMESPACE}"
 
 # Uninstall helm-install pipeline
-helm uninstall -n "${PIPELINE_NAMESPACE}" helm-install
-if [[ $? -ne 0 ]]; then
-  echo "failed to uninstall helm-install pipeline"
-  exit 1
-fi
+helm_uninstall_if_exists helm-install "${PIPELINE_NAMESPACE}"
 
 # Uninstall generic-runner pipeline
-helm uninstall -n "${PIPELINE_NAMESPACE}" generic-runner
-if [[ $? -ne 0 ]]; then
-  echo "failed to uninstall generic-runner pipeline"
-  exit 1
-fi
+helm_uninstall_if_exists generic-runner "${PIPELINE_NAMESPACE}"
 
 # Uninstall common-dependency pipeline
-helm uninstall -n "${PIPELINE_NAMESPACE}" common-dependency
-if [[ $? -ne 0 ]]; then
-  echo "failed to uninstall common-dependency"
-  exit 1
-fi
+helm_uninstall_if_exists common-dependency "${PIPELINE_NAMESPACE}"
 
 # Delete service account and cluster role binding
-kubectl delete clusterrolebinding pipeline-cluster-admin
-kubectl delete serviceaccount -n "${PIPELINE_NAMESPACE}" pipeline-cluster-admin
+kubectl delete clusterrolebinding pipeline-cluster-admin 2>/dev/null || echo "clusterrolebinding pipeline-cluster-admin not found, skipping..."
+kubectl delete serviceaccount -n "${PIPELINE_NAMESPACE}" pipeline-cluster-admin 2>/dev/null || echo "serviceaccount pipeline-cluster-admin not found, skipping..."
+
+# Set default Tekton Dashboard release version if not already set
+TEKTON_DASHBOARD_RELEASE=${TEKTON_DASHBOARD_RELEASE:-"v0.52.0"}
 
 # Uninstall tekton dashboard
 if [[ ${PIPELINE_SKIP_TEKTON_DASHBOARD} != "true" ]]; then
+  if [[ -z "${TEKTON_DASHBOARD_RELEASE}" ]]; then
+    echo "TEKTON_DASHBOARD_RELEASE is not set. Please set it before running the script."
+    exit 1
+  fi
   kubectl delete --filename "https://storage.googleapis.com/tekton-releases/dashboard/previous/${TEKTON_DASHBOARD_RELEASE}/release.yaml"
   if [[ $? -ne 0 ]]; then
     echo "failed to uninstall tekton dashboard"
     exit 1
   fi
 fi
+
+# Set default Tekton Pipeline release version if not already set
+TEKTON_PIPELINE_RELEASE=${TEKTON_PIPELINE_RELEASE:-"v0.65.0"}
 
 # Uninstall tekton pipeline
 if [[ ${PIPELINE_SKIP_TEKTON_PIPELINE} != "true" ]]; then
