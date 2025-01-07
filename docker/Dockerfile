@@ -64,10 +64,38 @@ COPY --from=builder-aws /opt/aws-cli/ /opt/aws-cli/
 RUN ln -s /opt/aws-cli/bin/aws /usr/local/bin/aws && \
     aws --version
 
+# eksctl https://github.com/eksctl-io/eksctl/releases
+ARG EKSCTL_VERSION
+ENV EKSCTL_VERSION=${EKSCTL_VERSION:-"v0.191.0"}
+RUN CMD_NAME=eksctl && \
+    curl --silent --location "https://github.com/eksctl-io/eksctl/releases/download/${EKSCTL_VERSION}/${CMD_NAME}_$(uname -s)_${TARGETARCH}.tar.gz" | tar xz -C /tmp && \
+    chmod +x /tmp/${CMD_NAME} && mv /tmp/${CMD_NAME} /usr/local/bin/${CMD_NAME}-${EKSCTL_VERSION} && \
+    ln -sf /usr/local/bin/${CMD_NAME}-${EKSCTL_VERSION} /usr/local/bin/${CMD_NAME} && \
+    ${CMD_NAME} version
+
+# aws ecr credentials helper
+# https://github.com/awslabs/amazon-ecr-credential-helper/releases
+ARG ECR_LOGIN_VERSION
+ENV ECR_LOGIN_VERSION=${ECR_LOGIN_VERSION:-"0.9.0"}
+RUN CMD_NAME=docker-credential-ecr-login && \
+    curl --silent --location "https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/${ECR_LOGIN_VERSION}/${TARGETOS}-${TARGETARCH}/docker-credential-ecr-login" -o /tmp/${CMD_NAME} && \
+    chmod +x /tmp/${CMD_NAME} && mv /tmp/${CMD_NAME} /usr/local/bin/${CMD_NAME}-${ECR_LOGIN_VERSION} && \
+    ln -sf /usr/local/bin/${CMD_NAME}-${ECR_LOGIN_VERSION} /usr/local/bin/${CMD_NAME} && \
+    ${CMD_NAME} -v
+
 # COPY azure cli to BASE_IMAGE
 COPY --from=builder-azure /azure /azure
 RUN ln -s /usr/bin/python3 /usr/local/bin/python && ln -s /azure/.venv/bin/az /usr/local/bin/az && \
     az version
+
+# Azure CLI Bicep https://github.com/Azure/bicep/releases
+ARG AZURE_CLI_BICEP_VERSION
+ENV AZURE_CLI_BICEP_VERSION=${AZURE_CLI_BICEP_VERSION:-"v0.30.23"}
+RUN echo "AZURE_CLI_BICEP_VERSION=${AZURE_CLI_BICEP_VERSION}" && \
+    az --version && \
+    az bicep install --version ${AZURE_CLI_BICEP_VERSION} && \
+    az extension add --name aks-preview && \
+    az extension update --name aks-preview
 
 # gcloud cli https://cloud.google.com/sdk/docs/release-notes
 ARG CLOUD_SDK_VERSION
@@ -84,35 +112,6 @@ RUN ARCH=`cat /tmp/arch` && \
     gcloud config set component_manager/disable_update_check true && \
     gcloud config set metrics/environment docker_image_alpine && \
     gcloud --version
-
-# eksctl https://github.com/eksctl-io/eksctl/releases
-ARG EKSCTL_VERSION
-ENV EKSCTL_VERSION=${EKSCTL_VERSION:-"v0.191.0"}
-RUN CMD_NAME=eksctl && \
-    curl --silent --location "https://github.com/eksctl-io/eksctl/releases/download/${EKSCTL_VERSION}/${CMD_NAME}_$(uname -s)_${TARGETARCH}.tar.gz" | tar xz -C /tmp && \
-    chmod +x /tmp/${CMD_NAME} && mv /tmp/${CMD_NAME} /usr/local/bin/${CMD_NAME}-${EKSCTL_VERSION} && \
-    ln -sf /usr/local/bin/${CMD_NAME}-${EKSCTL_VERSION} /usr/local/bin/${CMD_NAME} && \
-    ${CMD_NAME} version
-
-# aws ecr credentials helper
-# https://github.com/awslabs/amazon-ecr-credential-helper/releases
-ARG ECR_LOGIN_VERSION
-ENV ECR_LOGIN_VERSION=${ECR_LOGIN_VERSION:-"0.9.0"}
-RUN echo "/${ECR_LOGIN_VERSION}/${TARGETARCH}/docker-credential-ecr-login" && \
-    CMD_NAME=docker-credential-ecr-login && \
-    curl --silent --location "https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/${ECR_LOGIN_VERSION}/${TARGETOS}-${TARGETARCH}/docker-credential-ecr-login" -o /tmp/${CMD_NAME} && \
-    chmod +x /tmp/${CMD_NAME} && mv /tmp/${CMD_NAME} /usr/local/bin/${CMD_NAME}-${ECR_LOGIN_VERSION} && \
-    ln -sf /usr/local/bin/${CMD_NAME}-${ECR_LOGIN_VERSION} /usr/local/bin/${CMD_NAME} && \
-    ${CMD_NAME} -v
-
-# Azure CLI Bicep https://github.com/Azure/bicep/releases
-ARG AZURE_CLI_BICEP_VERSION
-ENV AZURE_CLI_BICEP_VERSION=${AZURE_CLI_BICEP_VERSION:-"v0.30.23"}
-RUN echo "AZURE_CLI_BICEP_VERSION=${AZURE_CLI_BICEP_VERSION}" && \
-    az --version && \
-    az bicep install --version ${AZURE_CLI_BICEP_VERSION} && \
-    az extension add --name aks-preview && \
-    az extension update --name aks-preview
 
 # cue for yaml validation https://github.com/cue-lang/cue/releases
 ARG CUE_VERSION

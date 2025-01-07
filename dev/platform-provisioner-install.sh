@@ -44,6 +44,7 @@
 #######################################
 
 [[ -z "${PIPELINE_DOCKER_IMAGE}" ]] && export PIPELINE_DOCKER_IMAGE=${PIPELINE_DOCKER_IMAGE:-"ghcr.io/tibcosoftware/platform-provisioner/platform-provisioner:latest"}
+[[ -z "${PIPELINE_DOCKER_IMAGE_TESTER}" ]] && export PIPELINE_DOCKER_IMAGE_TESTER=${PIPELINE_DOCKER_IMAGE_TESTER:-"ghcr.io/tibcosoftware/platform-provisioner/platform-provisioner:v1.0.0-tester"}
 [[ -z "${PIPELINE_SKIP_PROVISIONER_UI}" ]] && export PIPELINE_SKIP_PROVISIONER_UI=${PIPELINE_SKIP_PROVISIONER_UI:-false}
 [[ -z "${PIPELINE_SKIP_TEKTON_PIPELINE}" ]] && export PIPELINE_SKIP_TEKTON_PIPELINE=${PIPELINE_SKIP_TEKTON_PIPELINE:-false}
 [[ -z "${PIPELINE_SKIP_TEKTON_DASHBOARD}" ]] && export PIPELINE_SKIP_TEKTON_DASHBOARD=${PIPELINE_SKIP_TEKTON_DASHBOARD:-true}
@@ -88,9 +89,9 @@ export PIPELINE_NAMESPACE=${PIPELINE_NAMESPACE:-"tekton-tasks"}
 kubectl create namespace "${PIPELINE_NAMESPACE}"
 
 function k8s-waitfor-deployment() {
-  _deployment_namespace=$1
-  _deployment_name=$2
-  _timeout=$3
+  local _deployment_namespace=$1
+  local _deployment_name=$2
+  local _timeout=$3
   echo "waiting for ${_deployment_name} in namespace: ${_deployment_namespace} to be ready..."
   kubectl wait --for=condition=available -n "${_deployment_namespace}" "deployment/${_deployment_name}" --timeout="${_timeout}"
   if [ $? -ne 0 ]; then
@@ -126,6 +127,17 @@ helm upgrade --install -n "${PIPELINE_NAMESPACE}" generic-runner generic-runner 
   --set pipelineImage="${PIPELINE_DOCKER_IMAGE}"
 if [[ $? -ne 0 ]]; then
   echo "failed to install generic-runner pipeline"
+  exit 1
+fi
+
+helm upgrade --install -n "${PIPELINE_NAMESPACE}" generic-runner-tester generic-runner \
+  --version "${PIPELINE_CHART_VERSION_GENERIC_RUNNER}" --repo "${PLATFORM_PROVISIONER_PIPELINE_REPO}" -f - <<EOF
+name: generic-runner-tester
+serviceAccount: pipeline-cluster-admin
+pipelineImage: ${PIPELINE_DOCKER_IMAGE_TESTER}
+EOF
+if [[ $? -ne 0 ]]; then
+  echo "failed to install generic-runner-tester pipeline"
   exit 1
 fi
 
@@ -181,16 +193,21 @@ if [[ -n ${PIPELINE_GUI_DOCKER_IMAGE_TOKEN} ]]; then
 fi
 
 # install provisioner web ui
+# --set will handle the empty secret name
 helm upgrade --install -n "${PIPELINE_NAMESPACE}" platform-provisioner-ui platform-provisioner-ui --repo "${PLATFORM_PROVISIONER_PIPELINE_REPO}" \
   --version "${PIPELINE_CHART_VERSION_PROVISIONER_UI}" \
-  --set image.repository="${PIPELINE_GUI_DOCKER_IMAGE_REPO}/${PIPELINE_GUI_DOCKER_IMAGE_PATH}" \
-  --set image.tag="${PIPELINE_GUI_DOCKER_IMAGE_TAG}" \
-  --set "imagePullSecrets[0].name=${_image_pull_secret_name}" \
-  --set guiConfig.onPremMode=true \
-  --set guiConfig.pipelinesCleanUpEnabled=true \
-  --set service.type="${PIPELINE_GUI_SERVICE_TYPE}" \
-  --set service.port="${PIPELINE_GUI_SERVICE_PORT}" \
-  --set guiConfig.dataConfigMapName="provisioner-config-local-config"
+  --set "imagePullSecrets[0].name=${_image_pull_secret_name}" -f - <<EOF
+guiConfig:
+  dataConfigMapName: provisioner-config-local-config
+  onPremMode: true
+  pipelinesCleanUpEnabled: true
+image:
+  repository: "${PIPELINE_GUI_DOCKER_IMAGE_REPO}/${PIPELINE_GUI_DOCKER_IMAGE_PATH}"
+  tag: "${PIPELINE_GUI_DOCKER_IMAGE_TAG}"
+service:
+  port: "${PIPELINE_GUI_SERVICE_PORT}"
+  type: "${PIPELINE_GUI_SERVICE_TYPE}"
+EOF
 if [[ $? -ne 0 ]]; then
   echo "failed to install platform-provisioner-ui"
   exit 1
